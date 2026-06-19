@@ -2,12 +2,16 @@ import express from 'express';
 import cors from 'cors';
 import { env } from './config/env';
 import { connectDatabase } from './config/database';
+import { migrationService } from './services/migration.service';
 import routes from './routes';
 import { errorHandler } from './middleware/error-handler';
 
 async function main() {
   // Connect to MongoDB
   await connectDatabase();
+  
+  // Run DB migrations
+  await migrationService.runMigrations();
 
   const app = express();
 

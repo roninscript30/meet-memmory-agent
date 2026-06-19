@@ -8,18 +8,44 @@ import { eventController } from '../controllers/event.controller';
 import { chatController } from '../controllers/chat.controller';
 import { audioController } from '../controllers/audio.controller';
 import { validateBody } from '../middleware/validate';
+import { Meeting } from '../models/meeting.model';
+import fs from 'fs';
 
 const router = Router();
 
 // ── Multer config for audio uploads ─────────────────────────
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, env.uploadDir);
+  destination: async (req, file, cb) => {
+    try {
+      const meetingId = req.params.id;
+      const meeting = await Meeting.findOne({ meetingId });
+      
+      const platform = meeting ? meeting.platform.replace('_', '-') : 'google-meet';
+      const startedAt = meeting ? new Date(meeting.startedAt) : new Date();
+      const year = startedAt.getFullYear().toString();
+      const month = String(startedAt.getMonth() + 1).padStart(2, '0');
+      
+      const targetDir = path.join(env.uploadDir, platform, year, month, `meeting-${meetingId}`);
+      
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+      
+      console.log(`[AUDIO] Upload directory resolved: ${targetDir}`);
+      cb(null, targetDir);
+    } catch (err: any) {
+      console.error('[AUDIO] Failed to resolve upload directory, falling back:', err);
+      cb(err, env.uploadDir);
+    }
   },
-  filename: (_req, file, cb) => {
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    const ext = path.extname(file.originalname) || '.webm';
-    cb(null, `audio-${uniqueSuffix}${ext}`);
+  filename: (req, file, cb) => {
+    // Parse index from original name to avoid form-data ordering issues
+    const match = file.originalname.match(/chunk-(\d+)\.webm/);
+    const index = match ? parseInt(match[1], 10) : 0;
+    const paddedIndex = String(index).padStart(4, '0');
+    const filename = `chunk-${paddedIndex}.webm`;
+    console.log(`[AUDIO] Target filename resolved: ${filename}`);
+    cb(null, filename);
   },
 });
 

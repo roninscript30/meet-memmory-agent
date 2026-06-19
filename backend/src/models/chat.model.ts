@@ -5,6 +5,7 @@ export interface IChat extends Document {
   meeting: mongoose.Types.ObjectId;
   meetingId: string;
   sender: string;
+  senderRef?: mongoose.Types.ObjectId;
   message: string;
   timestamp: Date;
   timestampIST?: string;
@@ -28,6 +29,11 @@ const ChatSchema = new Schema<IChat>(
     sender: {
       type: String,
       required: true,
+    },
+    senderRef: {
+      type: Schema.Types.ObjectId,
+      ref: 'Participant',
+      index: true,
     },
     message: {
       type: String,

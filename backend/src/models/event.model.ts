@@ -13,9 +13,13 @@ export interface IEvent extends Document {
     | 'meeting_started'
     | 'meeting_ended';
   participant?: string;
+  participantRef?: mongoose.Types.ObjectId;
   speaker?: string;
   timestamp: Date;
   timestampIST?: string;
+  endedAt?: Date;
+  endedAtIST?: string;
+  duration?: number;
   metadata?: Record<string, unknown>;
   createdAtIST?: string;
   updatedAtIST?: string;
@@ -50,6 +54,11 @@ const EventSchema = new Schema<IEvent>(
     participant: {
       type: String,
     },
+    participantRef: {
+      type: Schema.Types.ObjectId,
+      ref: 'Participant',
+      index: true,
+    },
     speaker: {
       type: String,
     },
@@ -59,6 +68,15 @@ const EventSchema = new Schema<IEvent>(
     },
     timestampIST: {
       type: String,
+    },
+    endedAt: {
+      type: Date,
+    },
+    endedAtIST: {
+      type: String,
+    },
+    duration: {
+      type: Number,
     },
     metadata: {
       type: Schema.Types.Mixed,
@@ -83,12 +101,21 @@ EventSchema.pre('save', function (next) {
   if (this.timestamp) {
     this.timestampIST = toISTString(this.timestamp);
   }
+  if (this.endedAt) {
+    this.endedAtIST = toISTString(this.endedAt);
+  }
 
   const now = new Date();
   if (!this.createdAtIST) {
     this.createdAtIST = toISTString(now);
   }
   this.updatedAtIST = toISTString(now);
+
+  if (this.endedAt && this.timestamp) {
+    this.duration = Math.round(
+      (this.endedAt.getTime() - this.timestamp.getTime()) / 1000
+    );
+  }
   next();
 });
 
