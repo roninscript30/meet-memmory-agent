@@ -17,7 +17,7 @@ export class ScreenShareObserver {
   }
 
   start(): void {
-    console.log('[ScreenShareObserver] Starting...');
+    console.log('[SCREENSHARE] Observer starting...');
 
     // Initial check
     this.checkScreenShare();
@@ -29,7 +29,7 @@ export class ScreenShareObserver {
   }
 
   stop(): void {
-    console.log('[ScreenShareObserver] Stopping...');
+    console.log('[SCREENSHARE] Observer stopping...');
 
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
@@ -53,7 +53,7 @@ export class ScreenShareObserver {
 
     if (status.active && !this.isSharing) {
       // Screen share started
-      console.log(`[ScreenShareObserver] Screen share started by ${status.participant || 'unknown'}`);
+      console.log(`[SCREENSHARE] Screen share started by ${status.participant || 'unknown'}`);
       this.isSharing = true;
       this.sharingParticipant = status.participant;
 
@@ -63,7 +63,7 @@ export class ScreenShareObserver {
       });
     } else if (!status.active && this.isSharing) {
       // Screen share stopped
-      console.log(`[ScreenShareObserver] Screen share stopped`);
+      console.log('[SCREENSHARE] Screen share stopped');
       eventBus.emit('screen_share_stopped', {
         participant: this.sharingParticipant,
         timestamp: new Date().toISOString(),

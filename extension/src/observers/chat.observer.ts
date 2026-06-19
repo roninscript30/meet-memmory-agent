@@ -16,7 +16,7 @@ export class ChatObserver {
   }
 
   start(): void {
-    console.log('[ChatObserver] Starting...');
+    console.log('[CHAT] Observer starting...');
 
     // Initial scan
     this.scanMessages();
@@ -32,7 +32,7 @@ export class ChatObserver {
   }
 
   stop(): void {
-    console.log('[ChatObserver] Stopping...');
+    console.log('[CHAT] Observer stopping...');
     this.observer?.disconnect();
     this.observer = null;
 
@@ -59,17 +59,17 @@ export class ChatObserver {
       subtree: true,
     });
 
-    console.log('[ChatObserver] MutationObserver attached');
+    console.log('[CHAT] MutationObserver attached to container');
   }
 
-  private scanMessages(): void {
+  public scanMessages(): void {
     const messages = this.adapter.getChatMessages();
 
     messages.forEach((msg) => {
       const hash = this.hashMessage(msg);
       if (!this.seenMessages.has(hash)) {
         this.seenMessages.add(hash);
-        console.log(`[ChatObserver] New message from ${msg.sender}: ${msg.message.substring(0, 50)}`);
+        console.log(`[CHAT] New message from ${msg.sender}: ${msg.message.substring(0, 50)}`);
         eventBus.emit('chat_message', msg);
       }
     });

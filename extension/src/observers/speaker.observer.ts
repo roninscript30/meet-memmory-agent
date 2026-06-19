@@ -19,7 +19,7 @@ export class SpeakerObserver {
   }
 
   start(): void {
-    console.log('[SpeakerObserver] Starting...');
+    console.log('[SPEAKER] Observer starting...');
 
     // Initial check
     this.checkSpeaker();
@@ -34,7 +34,7 @@ export class SpeakerObserver {
   }
 
   stop(): void {
-    console.log('[SpeakerObserver] Stopping...');
+    console.log('[SPEAKER] Observer stopping...');
     this.observer?.disconnect();
     this.observer = null;
 
@@ -82,7 +82,7 @@ export class SpeakerObserver {
       });
     }
 
-    console.log('[SpeakerObserver] MutationObserver attached');
+    console.log('[SPEAKER] MutationObserver attached to container');
   }
 
   private debouncedCheck(): void {
@@ -98,7 +98,7 @@ export class SpeakerObserver {
     const speaker = this.adapter.getActiveSpeaker();
 
     if (speaker && speaker !== this.currentSpeaker) {
-      console.log(`[SpeakerObserver] Speaker changed: ${this.currentSpeaker} → ${speaker}`);
+      console.log(`[SPEAKER] Speaker changed: ${this.currentSpeaker} → ${speaker}`);
       this.currentSpeaker = speaker;
 
       eventBus.emit('speaker_changed', {

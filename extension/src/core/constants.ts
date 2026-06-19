@@ -19,31 +19,32 @@ export const AUDIO_MIME_TYPE = 'audio/webm;codecs=opus';
 export const SPEAKER_DEBOUNCE_MS = 300;
 export const OBSERVER_RECONNECT_INTERVAL_MS = 30000;
 
-// Google Meet selectors (resilient, aria-based)
+// Google Meet selectors (resilient, closure and aria-based)
 export const GMEET_SELECTORS = {
   // Meeting title — data attribute or document title
   meetingTitle: '[data-meeting-title]',
   meetingTitleFallback: '.roSPhc',
 
   // Participant tiles
-  participantTile: '[data-self-name]',
+  participantTile: '[data-allocation-index]',
   participantName: '[data-self-name]',
   
   // People sidebar
-  peopleSidebar: '[aria-label="People"]',
+  peopleSidebar: '[aria-label="People"], [aria-label="Participants"], [role="complementary"]',
   peopleListItem: '[role="listitem"]',
   
   // Active speaker — blue border or "is presenting" aria
-  speakerIndicator: '[aria-label*="is speaking"]',
+  speakerIndicator: '[aria-label*="speaking"]',
   speakerBorderSelector: '[data-allocation-index]',
 
   // Chat panel
-  chatPanel: '[aria-label="Chat with everyone"]',
-  chatMessage: '[data-message-text]',
-  chatSender: '[data-sender-name]',
+  chatPanel: '[aria-label="Chat with everyone"], [aria-label="In-call messages"], [aria-label="Meeting chat"], [role="log"]',
+  chatMessageGroup: '[jsname="YnAdTe"]',
+  chatMessageSender: '[jsname="W72wCc"]',
+  chatMessageText: '[jsname="dotZ1e"]',
 
   // Screen sharing
-  screenShareIndicator: '[aria-label*="presenting"]',
+  screenShareIndicator: '[aria-label*="presenting"], [aria-label*="Presentation"]',
   screenShareActive: '[data-is-screen-sharing="true"]',
 
   // General containers for MutationObserver attachment

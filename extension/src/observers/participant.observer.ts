@@ -16,7 +16,7 @@ export class ParticipantObserver {
   }
 
   start(): void {
-    console.log('[ParticipantObserver] Starting...');
+    console.log('[PARTICIPANTS] Observer starting...');
 
     // Initial scan
     this.scanParticipants();
@@ -32,7 +32,7 @@ export class ParticipantObserver {
   }
 
   stop(): void {
-    console.log('[ParticipantObserver] Stopping...');
+    console.log('[PARTICIPANTS] Observer stopping...');
     this.observer?.disconnect();
     this.observer = null;
 
@@ -66,17 +66,23 @@ export class ParticipantObserver {
       characterData: true,
     });
 
-    console.log('[ParticipantObserver] MutationObserver attached');
+    console.log('[PARTICIPANTS] MutationObserver attached to container');
   }
 
-  private scanParticipants(): void {
+  public scanParticipants(): void {
+    const container = this.adapter.getParticipantListContainer();
+    if (!container) {
+      // Skip scan if sidebar container is not mounted to prevent false leaves
+      return;
+    }
+
     const current = new Set(this.adapter.getParticipants());
     const now = new Date().toISOString();
 
     // Detect joins
     current.forEach((name) => {
       if (!this.knownParticipants.has(name)) {
-        console.log(`[ParticipantObserver] Joined: ${name}`);
+        console.log(`[PARTICIPANTS] Joined: ${name}`);
         eventBus.emit('participant_joined', { name, timestamp: now });
       }
     });
@@ -84,7 +90,7 @@ export class ParticipantObserver {
     // Detect leaves
     this.knownParticipants.forEach((name) => {
       if (!current.has(name)) {
-        console.log(`[ParticipantObserver] Left: ${name}`);
+        console.log(`[PARTICIPANTS] Left: ${name}`);
         eventBus.emit('participant_left', { name, timestamp: now });
       }
     });

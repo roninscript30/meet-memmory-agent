@@ -12,8 +12,8 @@ build/
 !.env.example
 
 # Local uploads and temporary files
-backend/uploads/*
-!backend/uploads/.gitkeep
+backend/uploads/
+uploads/
 
 # IDEs and Editors
 .idea/

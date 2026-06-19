@@ -25,6 +25,7 @@ let speakerObserver: SpeakerObserver | null = null;
 let screenShareObserver: ScreenShareObserver | null = null;
 let isRunning = false;
 let currentMeetingId: string | null = null;
+let panelToggleInterval: ReturnType<typeof setInterval> | null = null;
 
 // ── Platform Detection ──────────────────────────────────────
 function detectPlatform(): MeetingAdapter | null {
@@ -172,7 +173,33 @@ function startScraping(): void {
     speakerObserver.start();
     screenShareObserver.start();
 
-    console.log('[MeetScraper] All observers started');
+    console.log('[SCRAPER] All observers started');
+
+    // Start coordinated panel-switching loop for Google Meet / Zoho Meet
+    if (adapter && adapter.openChatPanel && adapter.openPeoplePanel) {
+      console.log('[SCRAPER] Starting coordinated panel-switching loop');
+      
+      // Keep Chat panel open by default to catch live messages
+      adapter.openChatPanel();
+
+      panelToggleInterval = setInterval(() => {
+        if (!adapter || !isRunning) return;
+        
+        console.log('[SCRAPER] Coordinated Panel Toggle: Swapping to People panel to scan participants');
+        const openedPeople = adapter.openPeoplePanel?.();
+        
+        if (openedPeople) {
+          setTimeout(() => {
+            if (!adapter || !isRunning) return;
+            
+            participantObserver?.scanParticipants();
+            
+            console.log('[SCRAPER] Coordinated Panel Toggle: Swapping back to Chat panel');
+            adapter.openChatPanel?.();
+          }, 600);
+        }
+      }, 10000);
+    }
   }, 3000);
 }
 
@@ -180,12 +207,18 @@ function startScraping(): void {
 function stopScraping(): void {
   if (!isRunning) return;
 
-  console.log('[MeetScraper] Stopping data collection...');
+  console.log('[SCRAPER] Stopping data collection...');
 
   participantObserver?.stop();
   chatObserver?.stop();
   speakerObserver?.stop();
   screenShareObserver?.stop();
+
+  if (panelToggleInterval) {
+    clearInterval(panelToggleInterval);
+    panelToggleInterval = null;
+    console.log('[SCRAPER] Coordinated panel-switching loop stopped');
+  }
 
   // Send meeting ended event
   if (currentMeetingId) {
@@ -205,6 +238,7 @@ function stopScraping(): void {
   chatObserver = null;
   speakerObserver = null;
   screenShareObserver = null;
+  adapter?.onStopScraping?.();
   adapter = null;
   isRunning = false;
   currentMeetingId = null;

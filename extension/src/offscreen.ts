@@ -1,4 +1,4 @@
-z// ============================================================
+// ============================================================
 // Offscreen Document — Audio Capture & Mixing
 // 
 // This runs in a hidden document and provides:
@@ -16,6 +16,7 @@ let mediaRecorder: MediaRecorder | null = null;
 let audioContext: AudioContext | null = null;
 let tabStream: MediaStream | null = null;
 let micStream: MediaStream | null = null;
+let playbackAudioEl: HTMLAudioElement | null = null;
 let chunkDuration = AUDIO_CHUNK_DURATION_MS / 1000; // in seconds
 
 // ── Listen for messages from background ─────────────────────
@@ -26,7 +27,7 @@ chrome.runtime.onMessage.addListener(
         startRecording(message.payload.streamId)
           .then(() => sendResponse({ success: true }))
           .catch((err) => {
-            console.error('[Offscreen] Start recording failed:', err);
+            console.error('[AUDIO] Start recording failed:', err);
             sendResponse({ success: false, error: err.message });
           });
         return true;
@@ -41,7 +42,7 @@ chrome.runtime.onMessage.addListener(
 
 // ── Start Recording ─────────────────────────────────────────
 async function startRecording(streamId: string): Promise<void> {
-  console.log('[Offscreen] Starting audio capture...');
+  console.log('[AUDIO] Starting audio capture with streamId:', streamId);
 
   // 1. Get tab audio stream
   tabStream = await navigator.mediaDevices.getUserMedia({
@@ -52,6 +53,7 @@ async function startRecording(streamId: string): Promise<void> {
       },
     } as any,
   });
+  console.log('[AUDIO] Tab audio stream captured successfully');
 
   // 2. Try to get microphone stream
   try {
@@ -62,23 +64,31 @@ async function startRecording(streamId: string): Promise<void> {
         autoGainControl: true,
       },
     });
-    console.log('[Offscreen] Microphone captured');
+    console.log('[AUDIO] Microphone stream captured successfully');
   } catch (err) {
-    console.warn('[Offscreen] Microphone capture failed (continuing with tab audio only):', err);
+    console.warn('[AUDIO] Microphone capture failed (continuing with tab audio only):', err);
     micStream = null;
   }
 
   // 3. Mix audio streams using Web Audio API
   audioContext = new AudioContext();
+  console.log('[AUDIO] AudioContext created. Current state:', audioContext.state);
+  
   if (audioContext.state === 'suspended') {
     await audioContext.resume();
+    console.log('[AUDIO] AudioContext resumed. New state:', audioContext.state);
   }
 
   const tabSource = audioContext.createMediaStreamSource(tabStream);
   const destination = audioContext.createMediaStreamDestination();
 
-  // Connect tab audio to output (so user still hears it)
-  tabSource.connect(audioContext.destination);
+  // Route tab audio to a hidden HTML5 <audio> element for local playback (prevents muting the tab)
+  playbackAudioEl = document.createElement('audio');
+  playbackAudioEl.autoplay = true;
+  playbackAudioEl.srcObject = tabStream;
+  document.body.appendChild(playbackAudioEl);
+  console.log('[AUDIO] Local playback element attached for tab audio');
+
   // Connect tab audio to recorder destination
   tabSource.connect(destination);
 
@@ -105,9 +115,12 @@ async function startRecording(streamId: string): Promise<void> {
 
   // 5. Handle data chunks
   mediaRecorder.ondataavailable = async (event) => {
-    if (event.data.size === 0) return;
+    if (event.data.size === 0) {
+      console.warn('[AUDIO] MediaRecorder returned an empty chunk');
+      return;
+    }
 
-    console.log(`[Offscreen] Audio chunk: ${event.data.size} bytes`);
+    console.log(`[AUDIO] Captured chunk: ${event.data.size} bytes, type: ${event.data.type}`);
 
     // Convert Blob to base64 for sending via chrome.runtime.sendMessage
     const reader = new FileReader();
@@ -127,26 +140,35 @@ async function startRecording(streamId: string): Promise<void> {
   };
 
   mediaRecorder.onerror = (event) => {
-    console.error('[Offscreen] MediaRecorder error:', event);
+    console.error('[AUDIO] MediaRecorder error:', event);
   };
 
   mediaRecorder.onstop = () => {
-    console.log('[Offscreen] MediaRecorder stopped');
+    console.log('[AUDIO] MediaRecorder stopped');
   };
 
   // 6. Start recording with timeslice for chunking
   mediaRecorder.start(AUDIO_CHUNK_DURATION_MS);
-  console.log(`[Offscreen] Recording started (${AUDIO_CHUNK_DURATION_MS / 1000}s chunks)`);
+  console.log(`[AUDIO] Recording started (${AUDIO_CHUNK_DURATION_MS / 1000}s chunks)`);
 }
 
 // ── Stop Recording ──────────────────────────────────────────
 function stopRecording(): void {
-  console.log('[Offscreen] Stopping audio capture...');
+  console.log('[AUDIO] Stopping audio capture...');
 
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.stop();
   }
   mediaRecorder = null;
+
+  // Stop local playback element
+  if (playbackAudioEl) {
+    playbackAudioEl.pause();
+    playbackAudioEl.srcObject = null;
+    playbackAudioEl.remove();
+    playbackAudioEl = null;
+    console.log('[AUDIO] Local playback element cleaned up');
+  }
 
   // Stop all tracks
   tabStream?.getTracks().forEach((t) => t.stop());
@@ -157,6 +179,7 @@ function stopRecording(): void {
   // Close audio context
   audioContext?.close();
   audioContext = null;
+  console.log('[AUDIO] Audio capture stopped and cleaned up');
 }
 
-console.log('[Offscreen] Audio capture document loaded');
+console.log('[AUDIO] Audio capture document loaded');

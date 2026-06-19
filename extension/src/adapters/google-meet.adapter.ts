@@ -56,30 +56,34 @@ export class GoogleMeetAdapter extends BaseAdapter {
   getParticipants(): string[] {
     const participants: string[] = [];
 
-    // Method 1: data-self-name on video tiles
-    document.querySelectorAll('[data-self-name]').forEach((el) => {
-      const name = el.getAttribute('data-self-name');
-      if (name && !participants.includes(name)) {
-        participants.push(name);
-      }
-    });
-
-    // Method 2: People sidebar (if open)
-    const sidePanel = this.queryFirst([
-      GMEET_SELECTORS.peopleSidebar,
-      '[aria-label="Participants"]',
-      '[aria-label="People"]',
-    ]);
+    // Method 1: People sidebar (if open/mounted)
+    const sidePanel = this.getParticipantListContainer();
 
     if (sidePanel) {
       sidePanel.querySelectorAll('[role="listitem"]').forEach((item) => {
-        const name = this.getTextContent(item);
-        if (name && !participants.includes(name)) {
+        // Heuristic 1: Get name from profile avatar image alt attribute
+        const img = item.querySelector('img');
+        let name = img?.getAttribute('alt')?.trim();
+
+        // Heuristic 2: Get the text content of the first element (span/div) inside the item
+        if (!name) {
+          const textEls = Array.from(item.querySelectorAll('span, div')).filter(
+            (el) => el.children.length === 0 && el.textContent?.trim()
+          );
+          if (textEls.length > 0) {
+            name = textEls[0].textContent?.trim();
+          }
+        }
+
+        if (name) {
           // Clean up — remove status indicators like "(You)", "Host", etc.
           const cleanName = name
             .replace(/\s*\(You\)\s*/i, '')
             .replace(/\s*\(Host\)\s*/i, '')
             .replace(/\s*\(Organizer\)\s*/i, '')
+            .replace(/\s*Meeting host\s*/i, '')
+            .replace(/\s*Pin participant\s*/i, '')
+            .replace(/\s*Mute participant\s*/i, '')
             .trim();
           if (cleanName && !participants.includes(cleanName)) {
             participants.push(cleanName);
@@ -88,13 +92,11 @@ export class GoogleMeetAdapter extends BaseAdapter {
       });
     }
 
-    // Method 3: video tiles by data-allocation-index and data-participant-id
+    // Method 2: video tiles by data-allocation-index
     if (participants.length === 0) {
-      document.querySelectorAll('[data-allocation-index], [data-participant-id]').forEach((el) => {
-        // Try getting name from data-self-name or data-name
+      document.querySelectorAll('[data-allocation-index]').forEach((el) => {
         let name = el.getAttribute('data-self-name') || el.getAttribute('data-name');
         
-        // Try checking descendants for data-self-name
         if (!name) {
           const selfNameEl = el.querySelector('[data-self-name]');
           if (selfNameEl) {
@@ -102,46 +104,18 @@ export class GoogleMeetAdapter extends BaseAdapter {
           }
         }
 
-        // Try getting name from aria-label on the element or its descendants
         if (!name) {
-          const labelEl = el.hasAttribute('aria-label') ? el : el.querySelector('[aria-label]');
-          if (labelEl) {
-            const label = labelEl.getAttribute('aria-label') || '';
-            name = label
-              .replace(/^Video of\s+/i, '')
-              .replace(/['’]s video$/i, '')
-              .replace(/\s*\(You\)\s*/i, '')
-              .replace(/\s*\(Host\)\s*/i, '')
-              .replace(/\s*\(Organizer\)\s*/i, '')
-              .replace(/\s*Meeting host\s*/i, '')
+          const text = el.textContent?.trim();
+          if (text) {
+            name = text
+              .replace(/\s*\([^)]*\)/g, '')
+              .replace(/\s*Host\b/i, '')
+              .replace(/\s*Organizer\b/i, '')
               .trim();
           }
         }
 
-        // Try getting name from text content of the name overlay (leaf text node)
-        if (!name) {
-          const nameEl = el.querySelector('[data-self-name]');
-          if (nameEl) {
-            name = nameEl.textContent?.trim();
-          } else {
-            // Find leaf text elements with length 2 to 50
-            const leafNodes = Array.from(el.querySelectorAll('div, span, p')).filter(
-              (sub) => sub.children.length === 0 && sub.textContent?.trim()
-            );
-            if (leafNodes.length > 0) {
-              for (const leaf of leafNodes) {
-                const text = leaf.textContent?.trim() || '';
-                if (text.length > 1 && text.length < 50) {
-                  name = text;
-                  break;
-                }
-              }
-            }
-          }
-        }
-
         if (name && !participants.includes(name) && name.length < 100) {
-          // Exclude buttons or control labels that might slip through
           const lowerName = name.toLowerCase();
           const blacklistedKeywords = [
             'settings', 'camera', 'microphone', 'audio', 'video', 'screen', 
@@ -160,28 +134,43 @@ export class GoogleMeetAdapter extends BaseAdapter {
   }
 
   getActiveSpeaker(): string | null {
-    // Method 1: aria-label containing "is speaking"
-    const speakingEl = document.querySelector('[aria-label*="is speaking"]');
-    if (speakingEl) {
-      const label = speakingEl.getAttribute('aria-label') || '';
-      const match = label.match(/(.*?)\s+is speaking/i);
-      if (match) return match[1].trim();
+    // Method 1: aria-label/title containing "speaking"
+    const speakingIndicators = document.querySelectorAll(
+      '[aria-label*="speaking"], [title*="speaking"], [aria-label*="is speaking"]'
+    );
+    for (const indicator of speakingIndicators) {
+      const label = indicator.getAttribute('aria-label') || indicator.getAttribute('title') || '';
+      const match = label.match(/(.*?)\s+(?:is\s+)?speaking/i);
+      if (match) {
+        const name = match[1].trim();
+        if (name && name.toLowerCase() !== 'microphone') {
+          return name;
+        }
+      }
     }
 
-    // Method 2: Look for blue border (computed style)
-    // Google Meet applies a distinctive blue border to the active speaker's tile
+    // Method 2: Look for blue border outline on video tiles
     const tiles = document.querySelectorAll('[data-allocation-index]');
     for (const tile of tiles) {
       const style = window.getComputedStyle(tile);
       const borderColor = style.borderColor || style.getPropertyValue('border-color');
-      // Google's blue: rgb(66, 133, 244) or #4285f4
-      if (
-        borderColor?.includes('66, 133, 244') ||
-        borderColor?.includes('26, 115, 232')
-      ) {
-        const nameEl = tile.querySelector('[data-self-name]');
-        if (nameEl) {
-          return nameEl.getAttribute('data-self-name') || null;
+      const outlineColor = style.outlineColor || style.getPropertyValue('outline-color');
+      const boxHighlight = borderColor?.includes('66, 133, 244') || 
+                           borderColor?.includes('26, 115, 232') ||
+                           outlineColor?.includes('66, 133, 244') ||
+                           outlineColor?.includes('26, 115, 232');
+
+      if (boxHighlight) {
+        const text = tile.textContent?.trim();
+        if (text) {
+          const cleanName = text
+            .replace(/\s*\([^)]*\)/g, '')
+            .replace(/\s*Host\b/i, '')
+            .replace(/\s*Organizer\b/i, '')
+            .trim();
+          if (cleanName && cleanName.length < 50) {
+            return cleanName;
+          }
         }
       }
     }
@@ -191,31 +180,47 @@ export class GoogleMeetAdapter extends BaseAdapter {
 
   getChatMessages(): ChatMessage[] {
     const messages: ChatMessage[] = [];
-
-    // Try to find chat messages in the chat panel
     const chatPanel = this.getChatContainer();
     if (!chatPanel) return messages;
 
-    const messageElements = chatPanel.querySelectorAll(
-      '[data-message-text], [role="listitem"]'
-    );
-
-    messageElements.forEach((el) => {
-      const messageText =
-        el.getAttribute('data-message-text') || this.getTextContent(el);
-      const senderEl = el.querySelector('[data-sender-name]');
-      const sender = senderEl
-        ? senderEl.getAttribute('data-sender-name') || this.getTextContent(senderEl)
-        : 'Unknown';
-
-      if (messageText) {
-        messages.push({
-          sender: sender || 'Unknown',
-          message: messageText,
-          timestamp: new Date().toISOString(),
+    // Use stable jsname selectors for Google Meet chat structure
+    const messageGroups = chatPanel.querySelectorAll('[jsname="YnAdTe"]');
+    
+    if (messageGroups.length > 0) {
+      messageGroups.forEach((group) => {
+        const senderEl = group.querySelector('[jsname="W72wCc"]');
+        const sender = senderEl?.textContent?.trim() || 'Unknown';
+        
+        const textElements = group.querySelectorAll('[jsname="dotZ1e"]');
+        textElements.forEach((textEl) => {
+          const text = textEl.textContent?.trim();
+          if (text) {
+            messages.push({
+              sender: sender || 'Unknown',
+              message: text,
+              timestamp: new Date().toISOString(),
+            });
+          }
         });
-      }
-    });
+      });
+    } else {
+      // Fallback in case jsname attributes change
+      const listItems = chatPanel.querySelectorAll('[role="listitem"]');
+      listItems.forEach((el) => {
+        const divs = Array.from(el.querySelectorAll('div'));
+        if (divs.length >= 2) {
+          const sender = divs[0].textContent?.trim() || 'Unknown';
+          const message = divs[divs.length - 1].textContent?.trim() || '';
+          if (message && sender !== message) {
+            messages.push({
+              sender,
+              message,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        }
+      });
+    }
 
     return messages;
   }
@@ -223,7 +228,7 @@ export class GoogleMeetAdapter extends BaseAdapter {
   isScreenSharing(): { active: boolean; participant?: string } {
     // Check for "presenting" indicators
     const presentingEl = document.querySelector(
-      '[aria-label*="presenting"], [aria-label*="Presentation"]'
+      '[aria-label*="presenting"], [aria-label*="Presentation"], [aria-label*="screen share"]'
     );
 
     if (presentingEl) {
@@ -269,44 +274,84 @@ export class GoogleMeetAdapter extends BaseAdapter {
   }
 
   onStartScraping(): void {
-    console.log('[GoogleMeetAdapter] Performing startup routine...');
+    console.log('[SCRAPER] Performing startup routine...');
 
-    // 1. Sync participants by opening/closing People sidebar
+    // Inject visual-hiding CSS stylesheet so panels are invisibly opened in the background
+    const css = `
+      /* Position sidebars/complementary panels offscreen but keep them mounted */
+      [role="complementary"],
+      aside,
+      section[aria-label="Participants"],
+      section[aria-label="Chat"],
+      div[aria-label="Chat"],
+      .UQ4oAc {
+        position: absolute !important;
+        left: -9999px !important;
+        top: -9999px !important;
+        width: 360px !important;
+        height: 100% !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+        display: block !important;
+        z-index: -1000 !important;
+      }
+    `;
+    const style = document.createElement('style');
+    style.id = 'meet-scraper-hidden-panels';
+    style.textContent = css;
+    document.head.appendChild(style);
+    console.log('[SCRAPER] Injected panel-hiding styles');
+  }
+
+  onStopScraping(): void {
+    console.log('[SCRAPER] Performing shutdown routine...');
+    const style = document.getElementById('meet-scraper-hidden-panels');
+    style?.remove();
+    console.log('[SCRAPER] Removed panel-hiding styles');
+  }
+
+  openPeoplePanel(): boolean {
     const sidebar = this.getParticipantListContainer();
-    if (!sidebar) {
-      const btn = document.querySelector('[aria-label="Show everyone"]');
-      if (btn instanceof HTMLElement) {
-        console.log('[GoogleMeetAdapter] Opening People sidebar to sync participants...');
-        btn.click();
-        
-        setTimeout(() => {
-          const closeBtn = document.querySelector('[aria-label="Close"]');
-          if (closeBtn instanceof HTMLElement) {
-            closeBtn.click();
-            console.log('[GoogleMeetAdapter] Closed People sidebar');
-          }
-        }, 1500);
-      }
-    }
+    if (sidebar) return true;
 
-    // 2. Sync chats by opening/closing Chat panel (delayed so it doesn't conflict with sidebar)
-    setTimeout(() => {
-      const chatPanel = this.getChatContainer();
-      if (!chatPanel) {
-        const btn = document.querySelector('[aria-label="Chat with everyone"]');
-        if (btn instanceof HTMLElement) {
-          console.log('[GoogleMeetAdapter] Opening Chat panel to sync messages...');
-          btn.click();
-          
-          setTimeout(() => {
-            const closeBtn = document.querySelector('[aria-label="Close"]');
-            if (closeBtn instanceof HTMLElement) {
-              closeBtn.click();
-              console.log('[GoogleMeetAdapter] Closed Chat panel');
-            }
-          }, 1500);
-        }
-      }
-    }, 2000);
+    const btn = this.queryFirst([
+      '[aria-label="Show everyone"]',
+      '[aria-label*="participants"]',
+      '[aria-label*="people"]',
+      '[aria-label*="Everyone"]',
+    ]);
+    if (btn instanceof HTMLElement) {
+      console.log('[SCRAPER] Clicking to open People panel');
+      btn.click();
+      return true;
+    }
+    return false;
+  }
+
+  openChatPanel(): boolean {
+    const chatContainer = this.getChatContainer();
+    if (chatContainer) return true;
+
+    const btn = this.queryFirst([
+      '[aria-label="Chat with everyone"]',
+      '[aria-label*="chat"]',
+      '[aria-label*="messages"]',
+    ]);
+    if (btn instanceof HTMLElement) {
+      console.log('[SCRAPER] Clicking to open Chat panel');
+      btn.click();
+      return true;
+    }
+    return false;
+  }
+
+  closePanel(): boolean {
+    const closeBtn = document.querySelector('[aria-label="Close"], [aria-label*="close panel"]');
+    if (closeBtn instanceof HTMLElement) {
+      console.log('[SCRAPER] Clicking to close active panel');
+      closeBtn.click();
+      return true;
+    }
+    return false;
   }
 }
