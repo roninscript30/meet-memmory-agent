@@ -1,0 +1,38 @@
+{
+  "name": "meet-scraper-extension",
+  "displayName": "Meeting Scraper",
+  "version": "0.1.0",
+  "description": "AI Meeting Companion - Automatic meeting data collection",
+  "author": "Marudhu",
+  "scripts": {
+    "dev": "plasmo dev",
+    "build": "plasmo build",
+    "package": "plasmo package"
+  },
+  "dependencies": {
+    "plasmo": "^0.90.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@plasmohq/prettier-plugin-sort-imports": "^4.0.1",
+    "@types/chrome": "^0.0.287",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3"
+  },
+  "manifest": {
+    "permissions": [
+      "tabCapture",
+      "offscreen",
+      "activeTab",
+      "storage"
+    ],
+    "host_permissions": [
+      "https://meet.google.com/*",
+      "https://meeting.zoho.com/*",
+      "http://localhost:3001/*"
+    ]
+  }
+}
