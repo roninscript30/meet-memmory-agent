@@ -2,39 +2,35 @@ import type { MeetingAdapter, ChatMessage } from '../core/types';
 import { eventBus } from '../core/event-bus';
 
 /**
- * Observes chat panel for new messages using MutationObserver.
- * Deduplicates messages using a content hash.
+ * Passively observes the chat panel for new messages using MutationObserver.
+ * Dynamically binds when the user opens the chat panel, and disconnects when closed.
  */
 export class ChatObserver {
   private observer: MutationObserver | null = null;
   private seenMessages: Set<string> = new Set();
   private adapter: MeetingAdapter;
   private pollInterval: ReturnType<typeof setInterval> | null = null;
+  private lastContainer: Element | null = null;
 
   constructor(adapter: MeetingAdapter) {
     this.adapter = adapter;
   }
 
   start(): void {
-    console.log('[CHAT] Observer starting...');
+    console.log('[CHAT] Passive Observer starting...');
 
-    // Initial scan
-    this.scanMessages();
+    // Initial check
+    this.updateBinding();
 
-    // Attach MutationObserver
-    this.attachObserver();
-
-    // Fallback poll every 15s for when chat panel opens/closes
+    // Check panel presence every 2 seconds
     this.pollInterval = setInterval(() => {
-      this.attachObserver();
-      this.scanMessages();
-    }, 15000);
+      this.updateBinding();
+    }, 2000);
   }
 
   stop(): void {
-    console.log('[CHAT] Observer stopping...');
-    this.observer?.disconnect();
-    this.observer = null;
+    console.log('[CHAT] Passive Observer stopping...');
+    this.cleanupObserver();
 
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
@@ -44,22 +40,36 @@ export class ChatObserver {
     this.seenMessages.clear();
   }
 
-  private attachObserver(): void {
-    if (this.observer) return;
-
+  private updateBinding(): void {
     const container = this.adapter.getChatContainer();
-    if (!container) return;
 
-    this.observer = new MutationObserver(() => {
+    if (container && !this.observer) {
+      // Chat panel was opened: bind observer
+      console.log('[CHAT] Chat panel detected. Binding MutationObserver...');
+      this.lastContainer = container;
       this.scanMessages();
-    });
 
-    this.observer.observe(container, {
-      childList: true,
-      subtree: true,
-    });
+      this.observer = new MutationObserver(() => {
+        this.scanMessages();
+      });
 
-    console.log('[CHAT] MutationObserver attached to container');
+      this.observer.observe(container, {
+        childList: true,
+        subtree: true,
+      });
+    } else if (!container && this.observer) {
+      // Chat panel was closed: disconnect observer
+      console.log('[CHAT] Chat panel unmounted. Unbinding MutationObserver...');
+      this.cleanupObserver();
+    }
+  }
+
+  private cleanupObserver(): void {
+    if (this.observer) {
+      this.observer.disconnect();
+      this.observer = null;
+    }
+    this.lastContainer = null;
   }
 
   public scanMessages(): void {

@@ -92,10 +92,5 @@ export interface MeetingAdapter {
   getParticipantListContainer(): Element | null;
   getChatContainer(): Element | null;
   getSpeakerIndicatorElements(): Element[];
-  onStartScraping?(): void;
-  onStopScraping?(): void;
-  openPeoplePanel?(): boolean;
-  openChatPanel?(): boolean;
-  closePanel?(): boolean;
   isInMeeting(): boolean;
 }

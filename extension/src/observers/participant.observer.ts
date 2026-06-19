@@ -2,46 +2,58 @@ import type { MeetingAdapter } from '../core/types';
 import { eventBus } from '../core/event-bus';
 
 /**
- * Observes participant list changes using MutationObserver.
- * Detects joins and leaves by diffing against a known set.
+ * Observes participant changes passively.
+ * Uses a registry/set-diffing approach.
+ * Detects joins from visible video tiles and sidebar (if open).
+ * Detects leaves ONLY when the sidebar panel is manually open to prevent false leaves.
  */
 export class ParticipantObserver {
-  private observer: MutationObserver | null = null;
   private knownParticipants: Set<string> = new Set();
   private adapter: MeetingAdapter;
   private pollInterval: ReturnType<typeof setInterval> | null = null;
+  private bodyObserver: MutationObserver | null = null;
 
   constructor(adapter: MeetingAdapter) {
     this.adapter = adapter;
   }
 
   start(): void {
-    console.log('[PARTICIPANTS] Observer starting...');
+    console.log('[PARTICIPANTS] Passive Observer starting...');
 
-    // Initial scan
+    // Run initial scan
     this.scanParticipants();
 
-    // Try to attach MutationObserver to participant container
-    this.attachObserver();
-
-    // Fallback poll every 10s in case the panel opens/closes
-    this.pollInterval = setInterval(() => {
-      this.attachObserver();
+    // Set up a MutationObserver on document.body to detect structural shifts
+    // (like video grid updates or sidebar mounts) in real time
+    this.bodyObserver = new MutationObserver(() => {
       this.scanParticipants();
-    }, 10000);
+    });
+
+    this.bodyObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+
+    // 3-second fallback poll
+    this.pollInterval = setInterval(() => {
+      this.scanParticipants();
+    }, 3000);
   }
 
   stop(): void {
-    console.log('[PARTICIPANTS] Observer stopping...');
-    this.observer?.disconnect();
-    this.observer = null;
-
+    console.log('[PARTICIPANTS] Passive Observer stopping...');
+    
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
       this.pollInterval = null;
     }
 
-    // Mark all remaining participants as left
+    if (this.bodyObserver) {
+      this.bodyObserver.disconnect();
+      this.bodyObserver = null;
+    }
+
+    // Emit leave events for all remaining participants on stop
     const now = new Date().toISOString();
     this.knownParticipants.forEach((name) => {
       eventBus.emit('participant_left', { name, timestamp: now });
@@ -50,51 +62,44 @@ export class ParticipantObserver {
     this.knownParticipants.clear();
   }
 
-  private attachObserver(): void {
-    if (this.observer) return; // Already attached
-
-    const container = this.adapter.getParticipantListContainer();
-    if (!container) return; // Panel not open
-
-    this.observer = new MutationObserver(() => {
-      this.scanParticipants();
-    });
-
-    this.observer.observe(container, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-
-    console.log('[PARTICIPANTS] MutationObserver attached to container');
-  }
-
   public scanParticipants(): void {
-    const container = this.adapter.getParticipantListContainer();
-    if (!container) {
-      // Skip scan if sidebar container is not mounted to prevent false leaves
-      return;
-    }
-
-    const current = new Set(this.adapter.getParticipants());
+    const sidebarOpen = this.adapter.getParticipantListContainer() !== null;
+    const current = this.adapter.getParticipants();
     const now = new Date().toISOString();
 
-    // Detect joins
-    current.forEach((name) => {
-      if (!this.knownParticipants.has(name)) {
-        console.log(`[PARTICIPANTS] Joined: ${name}`);
-        eventBus.emit('participant_joined', { name, timestamp: now });
-      }
-    });
+    if (sidebarOpen) {
+      // 1. Sidebar is open: ground-truth list is active.
+      // We can perform a full diff to detect both joins and leaves.
+      const currentSet = new Set(current);
 
-    // Detect leaves
-    this.knownParticipants.forEach((name) => {
-      if (!current.has(name)) {
-        console.log(`[PARTICIPANTS] Left: ${name}`);
-        eventBus.emit('participant_left', { name, timestamp: now });
-      }
-    });
+      // Detect joins
+      currentSet.forEach((name) => {
+        if (!this.knownParticipants.has(name)) {
+          console.log(`[PARTICIPANTS] Joined (Sidebar): ${name}`);
+          this.knownParticipants.add(name);
+          eventBus.emit('participant_joined', { name, timestamp: now });
+        }
+      });
 
-    this.knownParticipants = current;
+      // Detect leaves
+      this.knownParticipants.forEach((name) => {
+        if (!currentSet.has(name)) {
+          console.log(`[PARTICIPANTS] Left (Sidebar): ${name}`);
+          this.knownParticipants.delete(name);
+          eventBus.emit('participant_left', { name, timestamp: now });
+        }
+      });
+    } else {
+      // 2. Sidebar is closed: we are scanning visible grid tiles.
+      // We can detect new participants (joins), but we NEVER assume
+      // someone has left just because their tile was paged/hidden.
+      current.forEach((name) => {
+        if (!this.knownParticipants.has(name)) {
+          console.log(`[PARTICIPANTS] Joined (Grid Tile): ${name}`);
+          this.knownParticipants.add(name);
+          eventBus.emit('participant_joined', { name, timestamp: now });
+        }
+      });
+    }
   }
 }
